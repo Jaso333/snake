@@ -1,4 +1,5 @@
 use bevy::{color::palettes::tailwind, prelude::*, render::camera::ScalingMode};
+use rand::{thread_rng, Rng};
 
 // - ENTRY -
 
@@ -94,7 +95,7 @@ impl Default for SnakeBodyBuffer {
     }
 }
 
-#[derive(Component, Default, PartialEq, Eq)]
+#[derive(Component, Default, PartialEq, Eq, Clone, Copy)]
 struct GridPosition(IVec3);
 
 // - OBSERVERS -
@@ -240,8 +241,23 @@ fn control_snake(mut query: Query<&mut SnakeDirection>, input: Res<ButtonInput<K
     }
 }
 
-fn spawn_food(mut commands: Commands) {
-    commands.spawn((Food, GridPosition(IVec3::new(5, 0, 0))));
+fn spawn_food(query: Query<&GridPosition>, mut commands: Commands) {
+    const MIN: i32 = -5;
+    const SIZE: usize = 10;
+
+    let mut pool = Vec::with_capacity(SIZE * SIZE);
+    for x in MIN..(MIN + SIZE as i32) {
+        for z in MIN..(MIN + SIZE as i32) {
+            let grid_position = GridPosition(IVec3::new(x, 0, z));
+            if query.iter().all(|gp| gp != &grid_position) {
+                pool.push(grid_position);
+            }
+        }
+    }
+
+    let mut rng = thread_rng();
+    let grid_position = pool[rng.gen_range(0..pool.len())];
+    commands.spawn((Food, grid_position));
 }
 
 fn eat_food(
