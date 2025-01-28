@@ -1,6 +1,11 @@
 use bevy::{color::palettes::tailwind, prelude::*, render::camera::ScalingMode};
 use rand::{thread_rng, Rng};
 
+// - CONSTANTS -
+
+const ARENA_SIZE: i32 = 11;
+const ARENA_HALF_SIZE: i32 = ARENA_SIZE / 2;
+
 // - ENTRY -
 
 fn main() {
@@ -10,18 +15,26 @@ fn main() {
         .add_event::<FoodNeeded>()
         .add_observer(construct_snake_visual)
         .add_observer(construct_food)
+        .add_observer(construct_wall)
         .add_systems(
             PreStartup,
             (
                 insert_snake_material,
                 insert_food_material,
-                insert_snake_segment_mesh,
+                insert_unit_cube_mesh,
                 insert_food_mesh,
+                insert_wall_material,
             ),
         )
         .add_systems(
             Startup,
-            (spawn_camera, spawn_light, spawn_snake, spawn_initial_food),
+            (
+                spawn_camera,
+                spawn_light,
+                spawn_walls,
+                spawn_snake,
+                spawn_initial_food,
+            ),
         )
         .add_systems(
             FixedUpdate,
@@ -49,10 +62,13 @@ struct SnakeMaterial(Handle<StandardMaterial>);
 struct FoodMaterial(Handle<StandardMaterial>);
 
 #[derive(Resource)]
-struct SnakeSegmentMesh(Handle<Mesh>);
+struct UnitCubeMesh(Handle<Mesh>);
 
 #[derive(Resource)]
 struct FoodMesh(Handle<Mesh>);
+
+#[derive(Resource)]
+struct WallMaterial(Handle<StandardMaterial>);
 
 // - SCENE COMPONENTS -
 
@@ -75,6 +91,9 @@ struct Food;
 
 #[derive(Component, Default)]
 struct SnakeVisual;
+
+#[derive(Component)]
+struct Wall;
 
 // - COMPONENTS -
 
@@ -116,11 +135,11 @@ struct GridPosition(IVec3);
 fn construct_snake_visual(
     trigger: Trigger<OnAdd, SnakeVisual>,
     snake_material: Res<SnakeMaterial>,
-    snake_mesh: Res<SnakeSegmentMesh>,
+    unit_cube_mesh: Res<UnitCubeMesh>,
     mut commands: Commands,
 ) {
     commands.entity(trigger.entity()).insert((
-        Mesh3d(snake_mesh.0.clone()),
+        Mesh3d(unit_cube_mesh.0.clone()),
         MeshMaterial3d(snake_material.0.clone()),
     ));
 }
@@ -137,6 +156,18 @@ fn construct_food(
     ));
 }
 
+fn construct_wall(
+    trigger: Trigger<OnAdd, Wall>,
+    wall_material: Res<WallMaterial>,
+    unit_cube_mesh: Res<UnitCubeMesh>,
+    mut commands: Commands,
+) {
+    commands.entity(trigger.entity()).insert((
+        Mesh3d(unit_cube_mesh.0.clone()),
+        MeshMaterial3d(wall_material.0.clone()),
+    ));
+}
+
 // - SYSTEMS -
 
 fn insert_snake_material(mut materials: ResMut<Assets<StandardMaterial>>, mut commands: Commands) {
@@ -149,12 +180,18 @@ fn insert_food_material(mut materials: ResMut<Assets<StandardMaterial>>, mut com
     commands.insert_resource(FoodMaterial(materials.add(Color::from(tailwind::RED_500))));
 }
 
-fn insert_snake_segment_mesh(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
-    commands.insert_resource(SnakeSegmentMesh(meshes.add(Cuboid::from_length(1.0))));
+fn insert_unit_cube_mesh(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
+    commands.insert_resource(UnitCubeMesh(meshes.add(Cuboid::from_length(1.0))));
 }
 
 fn insert_food_mesh(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
     commands.insert_resource(FoodMesh(meshes.add(Sphere::new(0.5))));
+}
+
+fn insert_wall_material(mut materials: ResMut<Assets<StandardMaterial>>, mut commands: Commands) {
+    commands.insert_resource(WallMaterial(
+        materials.add(Color::from(tailwind::SLATE_400)),
+    ));
 }
 
 fn spawn_camera(mut commands: Commands) {
@@ -174,6 +211,48 @@ fn spawn_light(mut commands: Commands) {
     commands.spawn((
         DirectionalLight::default(),
         Transform::from_xyz(0.75, 2.0, 0.5).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+}
+
+fn spawn_walls(mut commands: Commands) {
+    // left
+    commands.spawn((
+        Wall,
+        Transform::from_xyz(-ARENA_HALF_SIZE as f32 - 1.0, 0.0, 0.0).with_scale(Vec3::new(
+            1.0,
+            1.0,
+            ARENA_SIZE as f32 + 2.0,
+        )),
+    ));
+
+    // right
+    commands.spawn((
+        Wall,
+        Transform::from_xyz(ARENA_HALF_SIZE as f32 + 1.0, 0.0, 0.0).with_scale(Vec3::new(
+            1.0,
+            1.0,
+            ARENA_SIZE as f32 + 2.0,
+        )),
+    ));
+
+    // top
+    commands.spawn((
+        Wall,
+        Transform::from_xyz(0.0, 0.0, -ARENA_HALF_SIZE as f32 - 1.0).with_scale(Vec3::new(
+            ARENA_SIZE as f32,
+            1.0,
+            1.0,
+        )),
+    ));
+
+    // bottom
+    commands.spawn((
+        Wall,
+        Transform::from_xyz(0.0, 0.0, ARENA_HALF_SIZE as f32 + 1.0).with_scale(Vec3::new(
+            ARENA_SIZE as f32,
+            1.0,
+            1.0,
+        )),
     ));
 }
 
@@ -293,16 +372,13 @@ fn spawn_food(
     query: Query<&GridPosition>,
     mut commands: Commands,
 ) {
-    const MIN: i32 = -5;
-    const SIZE: usize = 10;
-
     if food_needed.is_empty() {
         return;
     }
 
-    let mut pool = Vec::with_capacity(SIZE * SIZE);
-    for x in MIN..(MIN + SIZE as i32) {
-        for z in MIN..(MIN + SIZE as i32) {
+    let mut pool = Vec::with_capacity(ARENA_SIZE as usize * ARENA_SIZE as usize);
+    for x in -ARENA_HALF_SIZE..=ARENA_HALF_SIZE {
+        for z in -ARENA_HALF_SIZE..=ARENA_HALF_SIZE {
             let grid_position = GridPosition(IVec3::new(x, 0, z));
             if query.iter().all(|gp| gp != &grid_position) {
                 pool.push(grid_position);
