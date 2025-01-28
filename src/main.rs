@@ -20,7 +20,7 @@ fn main() {
             Startup,
             (spawn_camera, spawn_light, spawn_snake, spawn_food),
         )
-        .add_systems(FixedUpdate, move_snake)
+        .add_systems(FixedUpdate, (move_snake, eat_food).chain())
         .add_systems(Update, control_snake)
         .add_systems(PostUpdate, apply_grid_position)
         .run();
@@ -242,6 +242,21 @@ fn control_snake(mut query: Query<&mut SnakeDirection>, input: Res<ButtonInput<K
 
 fn spawn_food(mut commands: Commands) {
     commands.spawn((Food, GridPosition(IVec3::new(5, 0, 0))));
+}
+
+fn eat_food(
+    snake_query: Query<&GridPosition, (With<SnakeHead>, Changed<GridPosition>)>,
+    food_query: Query<(Entity, &GridPosition), (With<Food>, Without<SnakeHead>)>,
+    mut commands: Commands,
+) {
+    for snake_grid_position in snake_query.iter() {
+        for food_entity in food_query
+            .iter()
+            .filter_map(|(e, gp)| (gp == snake_grid_position).then(|| e))
+        {
+            commands.entity(food_entity).despawn_recursive();
+        }
+    }
 }
 
 fn apply_grid_position(mut query: Query<(&GridPosition, &mut Transform), Changed<GridPosition>>) {
