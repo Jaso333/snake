@@ -1,24 +1,45 @@
 use bevy::{color::palettes::tailwind, prelude::*, render::camera::ScalingMode};
 
+// - ENTRY -
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_observer(construct_snake_visual)
+        .add_observer(construct_food)
         .add_systems(
             PreStartup,
-            (insert_snake_material, insert_snake_segment_mesh),
+            (
+                insert_snake_material,
+                insert_food_material,
+                insert_snake_segment_mesh,
+                insert_food_mesh,
+            ),
         )
-        .add_systems(Startup, (spawn_camera, spawn_light, spawn_snake))
+        .add_systems(
+            Startup,
+            (spawn_camera, spawn_light, spawn_snake, spawn_food),
+        )
         .add_systems(FixedUpdate, move_snake)
         .add_systems(Update, control_snake)
         .run();
 }
 
+// - RESOURCES -
+
 #[derive(Resource)]
 struct SnakeMaterial(Handle<StandardMaterial>);
 
 #[derive(Resource)]
+struct FoodMaterial(Handle<StandardMaterial>);
+
+#[derive(Resource)]
 struct SnakeSegmentMesh(Handle<Mesh>);
+
+#[derive(Resource)]
+struct FoodMesh(Handle<Mesh>);
+
+// - SCENE COMPONENTS -
 
 #[derive(Component)]
 #[require(SnakeVisual, SnakeMoveTimer, SnakeDirection, SnakeBodyBuffer)]
@@ -27,6 +48,11 @@ struct SnakeHead;
 #[derive(Component)]
 #[require(SnakeVisual)]
 struct SnakeBodySegment;
+
+#[derive(Component)]
+struct Food;
+
+// - COMPONENTS -
 
 #[derive(Component, Default)]
 struct SnakeVisual;
@@ -61,6 +87,8 @@ impl Default for SnakeMoveTimer {
     }
 }
 
+// - OBSERVERS -
+
 fn construct_snake_visual(
     trigger: Trigger<OnAdd, SnakeVisual>,
     snake_material: Res<SnakeMaterial>,
@@ -73,14 +101,36 @@ fn construct_snake_visual(
     ));
 }
 
+fn construct_food(
+    trigger: Trigger<OnAdd, Food>,
+    food_material: Res<FoodMaterial>,
+    food_mesh: Res<FoodMesh>,
+    mut commands: Commands,
+) {
+    commands.entity(trigger.entity()).insert((
+        Mesh3d(food_mesh.0.clone()),
+        MeshMaterial3d(food_material.0.clone()),
+    ));
+}
+
+// - SYSTEMS -
+
 fn insert_snake_material(mut materials: ResMut<Assets<StandardMaterial>>, mut commands: Commands) {
     commands.insert_resource(SnakeMaterial(
         materials.add(Color::from(tailwind::GREEN_500)),
     ));
 }
 
+fn insert_food_material(mut materials: ResMut<Assets<StandardMaterial>>, mut commands: Commands) {
+    commands.insert_resource(FoodMaterial(materials.add(Color::from(tailwind::RED_500))));
+}
+
 fn insert_snake_segment_mesh(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
     commands.insert_resource(SnakeSegmentMesh(meshes.add(Cuboid::from_length(1.0))));
+}
+
+fn insert_food_mesh(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
+    commands.insert_resource(FoodMesh(meshes.add(Sphere::new(0.5))));
 }
 
 fn spawn_camera(mut commands: Commands) {
@@ -178,4 +228,8 @@ fn control_snake(mut query: Query<&mut SnakeDirection>, input: Res<ButtonInput<K
             direction.0 = Dir3::Z;
         }
     }
+}
+
+fn spawn_food(mut commands: Commands) {
+    commands.spawn((Food, Transform::from_xyz(5.0, 0.0, 0.0)));
 }
