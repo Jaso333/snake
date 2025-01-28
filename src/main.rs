@@ -45,7 +45,7 @@ struct SnakeBodyIndex(u32);
 
 impl Default for SnakeBodyBuffer {
     fn default() -> Self {
-        Self(3)
+        Self(2)
     }
 }
 
@@ -168,13 +168,13 @@ fn move_snake(
 
 fn control_snake(mut query: Query<&mut SnakeDirection>, input: Res<ButtonInput<KeyCode>>) {
     for mut direction in query.iter_mut() {
-        if input.just_pressed(KeyCode::KeyA) {
+        if input.just_pressed(KeyCode::KeyA) && direction.0 != Dir3::X {
             direction.0 = Dir3::NEG_X;
-        } else if input.just_pressed(KeyCode::KeyD) {
+        } else if input.just_pressed(KeyCode::KeyD) && direction.0 != Dir3::NEG_X {
             direction.0 = Dir3::X;
-        } else if input.just_pressed(KeyCode::KeyW) {
+        } else if input.just_pressed(KeyCode::KeyW) && direction.0 != Dir3::Z {
             direction.0 = Dir3::NEG_Z;
-        } else if input.just_pressed(KeyCode::KeyS) {
+        } else if input.just_pressed(KeyCode::KeyS) && direction.0 != Dir3::NEG_Z {
             direction.0 = Dir3::Z;
         }
     }
