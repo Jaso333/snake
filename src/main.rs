@@ -286,9 +286,12 @@ fn move_snake(
         // move the head forward by the snake's direction, detecting arena bounds collision
         let prev_position = grid_position.0;
         let next_position = grid_position.0 + direction.0.as_ivec3();
+
+        // check the next position for a wall or any other snake part
         if [next_position.x, next_position.z]
             .iter()
             .any(|e| e > &ARENA_HALF_SIZE || e < &-ARENA_HALF_SIZE)
+            || body_query.iter().any(|(_, gp)| gp.0 == next_position)
         {
             timer.0.pause();
             continue;
