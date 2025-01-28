@@ -22,6 +22,7 @@ fn main() {
         )
         .add_systems(FixedUpdate, move_snake)
         .add_systems(Update, control_snake)
+        .add_systems(PostUpdate, apply_grid_position)
         .run();
 }
 
@@ -42,7 +43,13 @@ struct FoodMesh(Handle<Mesh>);
 // - SCENE COMPONENTS -
 
 #[derive(Component)]
-#[require(SnakeVisual, SnakeMoveTimer, SnakeDirection, SnakeBodyBuffer)]
+#[require(
+    SnakeVisual,
+    SnakeMoveTimer,
+    SnakeDirection,
+    SnakeBodyBuffer,
+    GridPosition
+)]
 struct SnakeHead;
 
 #[derive(Component)]
@@ -52,16 +59,28 @@ struct SnakeBodySegment;
 #[derive(Component)]
 struct Food;
 
-// - COMPONENTS -
-
 #[derive(Component, Default)]
 struct SnakeVisual;
+
+// - COMPONENTS -
 
 #[derive(Component)]
 struct SnakeMoveTimer(Timer);
 
+impl Default for SnakeMoveTimer {
+    fn default() -> Self {
+        Self(Timer::from_seconds(0.5, TimerMode::Repeating))
+    }
+}
+
 #[derive(Component)]
 struct SnakeDirection(Dir3);
+
+impl Default for SnakeDirection {
+    fn default() -> Self {
+        Self(Dir3::NEG_Z)
+    }
+}
 
 #[derive(Component)]
 struct SnakeBodyBuffer(usize);
@@ -75,17 +94,8 @@ impl Default for SnakeBodyBuffer {
     }
 }
 
-impl Default for SnakeDirection {
-    fn default() -> Self {
-        Self(Dir3::NEG_Z)
-    }
-}
-
-impl Default for SnakeMoveTimer {
-    fn default() -> Self {
-        Self(Timer::from_seconds(0.5, TimerMode::Repeating))
-    }
-}
+#[derive(Component, Default, PartialEq, Eq)]
+struct GridPosition(IVec3);
 
 // - OBSERVERS -
 
@@ -162,42 +172,42 @@ fn move_snake(
         (
             &SnakeDirection,
             &mut SnakeMoveTimer,
-            &mut Transform,
+            &mut GridPosition,
             &mut SnakeBodyBuffer,
         ),
         Without<SnakeBodyIndex>,
     >,
-    mut body_query: Query<(&mut SnakeBodyIndex, &mut Transform)>,
+    mut body_query: Query<(&mut SnakeBodyIndex, &mut GridPosition)>,
     time: Res<Time>,
     mut commands: Commands,
 ) {
-    for (direction, mut timer, mut transform, mut buffer) in head_query.iter_mut() {
+    for (direction, mut timer, mut grid_position, mut buffer) in head_query.iter_mut() {
         if !timer.0.tick(time.delta()).just_finished() {
             continue;
         }
 
         // move the head forward by the snake's direction
-        let prev_translation = transform.translation;
-        transform.translation += direction.0.as_vec3();
+        let prev_position = grid_position.0;
+        grid_position.0 += direction.0.as_ivec3();
 
         // set the defaults for the next body piece
         let mut next_body_index = 0;
-        let mut next_body_translation = prev_translation;
+        let mut next_body_position = prev_position;
 
         // get the current max index
         if let Some((max_index, _)) = body_query.iter().max_by(|(i1, ..), (i2, ..)| i1.cmp(i2)) {
             let max_index = max_index.0;
 
             // find the segment at the back of the snake
-            if let Some((mut min_index, mut min_transform)) = body_query
+            if let Some((mut min_index, mut min_grid_position)) = body_query
                 .iter_mut()
                 .min_by(|(i1, ..), (i2, ..)| i1.cmp(i2))
             {
                 // move the body segment from the back to the head's previous position
-                next_body_translation = min_transform.translation;
+                next_body_position = min_grid_position.0;
                 next_body_index = min_index.0;
                 min_index.0 = max_index + 1;
-                min_transform.translation = prev_translation;
+                min_grid_position.0 = prev_position;
             }
         }
 
@@ -211,7 +221,7 @@ fn move_snake(
         commands.spawn((
             SnakeBodySegment,
             SnakeBodyIndex(next_body_index),
-            Transform::from_translation(next_body_translation),
+            GridPosition(next_body_position),
         ));
     }
 }
@@ -231,5 +241,11 @@ fn control_snake(mut query: Query<&mut SnakeDirection>, input: Res<ButtonInput<K
 }
 
 fn spawn_food(mut commands: Commands) {
-    commands.spawn((Food, Transform::from_xyz(5.0, 0.0, 0.0)));
+    commands.spawn((Food, GridPosition(IVec3::new(5, 0, 0))));
+}
+
+fn apply_grid_position(mut query: Query<(&GridPosition, &mut Transform), Changed<GridPosition>>) {
+    for (grid_position, mut transform) in query.iter_mut() {
+        transform.translation = grid_position.0.as_vec3();
+    }
 }
