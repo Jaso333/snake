@@ -283,8 +283,16 @@ fn move_snake(
             continue;
         }
 
-        // move the head forward by the snake's direction
+        // move the head forward by the snake's direction, detecting arena bounds collision
         let prev_position = grid_position.0;
+        let next_position = grid_position.0 + direction.0.as_ivec3();
+        if [next_position.x, next_position.z]
+            .iter()
+            .any(|e| e > &ARENA_HALF_SIZE || e < &-ARENA_HALF_SIZE)
+        {
+            timer.0.pause();
+            continue;
+        }
         grid_position.0 += direction.0.as_ivec3();
 
         // set the defaults for the next body piece
