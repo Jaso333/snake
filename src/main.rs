@@ -6,6 +6,8 @@ use rand::{thread_rng, Rng};
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_event::<FoodEaten>()
+        .add_event::<FoodNeeded>()
         .add_observer(construct_snake_visual)
         .add_observer(construct_food)
         .add_systems(
@@ -19,13 +21,24 @@ fn main() {
         )
         .add_systems(
             Startup,
-            (spawn_camera, spawn_light, spawn_snake, spawn_food),
+            (spawn_camera, spawn_light, spawn_snake, spawn_initial_food),
         )
-        .add_systems(FixedUpdate, (move_snake, eat_food).chain())
+        .add_systems(
+            FixedUpdate,
+            (move_snake, eat_food, spawn_next_food, spawn_food).chain(),
+        )
         .add_systems(Update, control_snake)
         .add_systems(PostUpdate, apply_grid_position)
         .run();
 }
+
+// - EVENTS -
+
+#[derive(Event)]
+struct FoodEaten;
+
+#[derive(Event)]
+struct FoodNeeded;
 
 // - RESOURCES -
 
@@ -168,6 +181,10 @@ fn spawn_snake(mut commands: Commands) {
     commands.spawn(SnakeHead);
 }
 
+fn spawn_initial_food(mut food_needed: EventWriter<FoodNeeded>) {
+    food_needed.send(FoodNeeded);
+}
+
 fn move_snake(
     mut head_query: Query<
         (
@@ -241,9 +258,47 @@ fn control_snake(mut query: Query<&mut SnakeDirection>, input: Res<ButtonInput<K
     }
 }
 
-fn spawn_food(query: Query<&GridPosition>, mut commands: Commands) {
+fn eat_food(
+    mut snake_query: Query<
+        (&GridPosition, &mut SnakeBodyBuffer),
+        (With<SnakeHead>, Changed<GridPosition>),
+    >,
+    food_query: Query<(Entity, &GridPosition), (With<Food>, Without<SnakeHead>)>,
+    mut food_eaten: EventWriter<FoodEaten>,
+    mut commands: Commands,
+) {
+    for (snake_grid_position, mut buffer) in snake_query.iter_mut() {
+        for food_entity in food_query
+            .iter()
+            .filter_map(|(e, gp)| (gp == snake_grid_position).then(|| e))
+        {
+            commands.entity(food_entity).despawn_recursive();
+            buffer.0 += 1; // extend the body
+            food_eaten.send(FoodEaten);
+        }
+    }
+}
+
+fn spawn_next_food(
+    mut food_eaten: EventReader<FoodEaten>,
+    mut food_needed: EventWriter<FoodNeeded>,
+) {
+    for _ in food_eaten.read() {
+        food_needed.send(FoodNeeded);
+    }
+}
+
+fn spawn_food(
+    mut food_needed: EventReader<FoodNeeded>,
+    query: Query<&GridPosition>,
+    mut commands: Commands,
+) {
     const MIN: i32 = -5;
     const SIZE: usize = 10;
+
+    if food_needed.is_empty() {
+        return;
+    }
 
     let mut pool = Vec::with_capacity(SIZE * SIZE);
     for x in MIN..(MIN + SIZE as i32) {
@@ -256,22 +311,10 @@ fn spawn_food(query: Query<&GridPosition>, mut commands: Commands) {
     }
 
     let mut rng = thread_rng();
-    let grid_position = pool[rng.gen_range(0..pool.len())];
-    commands.spawn((Food, grid_position));
-}
 
-fn eat_food(
-    snake_query: Query<&GridPosition, (With<SnakeHead>, Changed<GridPosition>)>,
-    food_query: Query<(Entity, &GridPosition), (With<Food>, Without<SnakeHead>)>,
-    mut commands: Commands,
-) {
-    for snake_grid_position in snake_query.iter() {
-        for food_entity in food_query
-            .iter()
-            .filter_map(|(e, gp)| (gp == snake_grid_position).then(|| e))
-        {
-            commands.entity(food_entity).despawn_recursive();
-        }
+    for _ in food_needed.read() {
+        let grid_position = pool.swap_remove(rng.gen_range(0..pool.len()));
+        commands.spawn((Food, grid_position));
     }
 }
 
