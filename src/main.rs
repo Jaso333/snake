@@ -86,6 +86,7 @@ struct WallMaterial(Handle<StandardMaterial>);
 #[require(
     SnakeVisual,
     SnakeMoveTimer,
+    SnakeNextDirection,
     SnakeDirection,
     SnakeBodyBuffer,
     GridPosition
@@ -142,11 +143,20 @@ impl Default for SnakeMoveTimer {
 }
 
 #[derive(Component)]
+struct SnakeNextDirection(Dir3);
+
+impl Default for SnakeNextDirection {
+    fn default() -> Self {
+        Self(Dir3::NEG_Z)
+    }
+}
+
+#[derive(Component)]
 struct SnakeDirection(Dir3);
 
 impl Default for SnakeDirection {
     fn default() -> Self {
-        Self(Dir3::NEG_Z)
+        Self(SnakeNextDirection::default().0)
     }
 }
 
@@ -321,10 +331,11 @@ fn spawn_initial_food(mut food_needed: EventWriter<FoodNeeded>) {
 fn move_snake(
     mut head_query: Query<
         (
-            &SnakeDirection,
+            &SnakeNextDirection,
             &mut SnakeMoveTimer,
             &mut GridPosition,
             &mut SnakeBodyBuffer,
+            &mut SnakeDirection,
         ),
         Without<SnakeBodyIndex>,
     >,
@@ -332,14 +343,16 @@ fn move_snake(
     time: Res<Time>,
     mut commands: Commands,
 ) {
-    for (direction, mut timer, mut grid_position, mut buffer) in head_query.iter_mut() {
+    for (next_direction, mut timer, mut grid_position, mut buffer, mut direction) in
+        head_query.iter_mut()
+    {
         if !timer.0.tick(time.delta()).just_finished() {
             continue;
         }
 
         // move the head forward by the snake's direction, detecting arena bounds collision
         let prev_position = grid_position.0;
-        let next_position = grid_position.0 + direction.0.as_ivec3();
+        let next_position = grid_position.0 + next_direction.0.as_ivec3();
 
         // check the next position for a wall or any other snake part
         if [next_position.x, next_position.z]
@@ -350,7 +363,8 @@ fn move_snake(
             timer.0.pause();
             continue;
         }
-        grid_position.0 += direction.0.as_ivec3();
+        grid_position.0 += next_direction.0.as_ivec3();
+        direction.0 = next_direction.0;
 
         // set the defaults for the next body piece
         let mut next_body_index = 0;
@@ -388,16 +402,32 @@ fn move_snake(
     }
 }
 
-fn control_snake(mut query: Query<&mut SnakeDirection>, input: Res<ButtonInput<KeyCode>>) {
-    for mut direction in query.iter_mut() {
-        if input.just_pressed(KeyCode::KeyA) && direction.0 != Dir3::X {
-            direction.0 = Dir3::NEG_X;
-        } else if input.just_pressed(KeyCode::KeyD) && direction.0 != Dir3::NEG_X {
-            direction.0 = Dir3::X;
-        } else if input.just_pressed(KeyCode::KeyW) && direction.0 != Dir3::Z {
-            direction.0 = Dir3::NEG_Z;
+fn control_snake(
+    mut query: Query<(&mut SnakeNextDirection, &SnakeDirection)>,
+    input: Res<ButtonInput<KeyCode>>,
+) {
+    // latching input respects only the final input, even if it was invalid for the current direction
+    for (mut next_direction, direction) in query.iter_mut() {
+        if input.just_pressed(KeyCode::KeyA) {
+            next_direction.0 = match direction.0 {
+                Dir3::X => direction.0,
+                _ => Dir3::NEG_X,
+            };
+        } else if input.just_pressed(KeyCode::KeyD) {
+            next_direction.0 = match direction.0 {
+                Dir3::NEG_X => direction.0,
+                _ => Dir3::X,
+            };
+        } else if input.just_pressed(KeyCode::KeyW) {
+            next_direction.0 = match direction.0 {
+                Dir3::Z => direction.0,
+                _ => Dir3::NEG_Z,
+            };
         } else if input.just_pressed(KeyCode::KeyS) && direction.0 != Dir3::NEG_Z {
-            direction.0 = Dir3::Z;
+            next_direction.0 = match direction.0 {
+                Dir3::NEG_Z => direction.0,
+                _ => Dir3::Z,
+            };
         }
     }
 }
