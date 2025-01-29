@@ -31,6 +31,8 @@ fn main() {
             (
                 spawn_camera,
                 spawn_light,
+                spawn_level_state,
+                spawn_score_label,
                 spawn_walls,
                 spawn_snake,
                 spawn_initial_food,
@@ -38,7 +40,15 @@ fn main() {
         )
         .add_systems(
             FixedUpdate,
-            (move_snake, eat_food, spawn_next_food, spawn_food).chain(),
+            (
+                move_snake,
+                eat_food,
+                (
+                    (spawn_next_food, spawn_food).chain(),
+                    (increment_score, update_score_label).chain(),
+                ),
+            )
+                .chain(),
         )
         .add_systems(Update, control_snake)
         .add_systems(PostUpdate, apply_grid_position)
@@ -95,6 +105,31 @@ struct SnakeVisual;
 #[derive(Component)]
 struct Wall;
 
+#[derive(Component)]
+#[require(Score)]
+struct LevelState;
+
+#[derive(Component)]
+#[require(Text(Self::text), Node(Self::node), TextFont(Self::text_font))]
+struct ScoreLabel;
+
+impl ScoreLabel {
+    fn text() -> Text {
+        Text::new("0")
+    }
+
+    fn node() -> Node {
+        Node {
+            margin: UiRect::all(Val::Px(16.)),
+            ..default()
+        }
+    }
+
+    fn text_font() -> TextFont {
+        TextFont::from_font_size(48.)
+    }
+}
+
 // - COMPONENTS -
 
 #[derive(Component)]
@@ -129,6 +164,9 @@ impl Default for SnakeBodyBuffer {
 
 #[derive(Component, Default, PartialEq, Eq, Clone, Copy)]
 struct GridPosition(IVec3);
+
+#[derive(Component, Default)]
+struct Score(u32);
 
 // - OBSERVERS -
 
@@ -171,13 +209,19 @@ fn construct_wall(
 // - SYSTEMS -
 
 fn insert_snake_material(mut materials: ResMut<Assets<StandardMaterial>>, mut commands: Commands) {
-    commands.insert_resource(SnakeMaterial(
-        materials.add(Color::from(tailwind::GREEN_500)),
-    ));
+    commands.insert_resource(SnakeMaterial(materials.add(StandardMaterial {
+        base_color: Color::from(tailwind::GREEN_500),
+        perceptual_roughness: 1.0,
+        ..default()
+    })));
 }
 
 fn insert_food_material(mut materials: ResMut<Assets<StandardMaterial>>, mut commands: Commands) {
-    commands.insert_resource(FoodMaterial(materials.add(Color::from(tailwind::RED_500))));
+    commands.insert_resource(FoodMaterial(materials.add(StandardMaterial {
+        base_color: Color::from(tailwind::RED_500),
+        perceptual_roughness: 1.0,
+        ..default()
+    })));
 }
 
 fn insert_unit_cube_mesh(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
@@ -189,9 +233,11 @@ fn insert_food_mesh(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
 }
 
 fn insert_wall_material(mut materials: ResMut<Assets<StandardMaterial>>, mut commands: Commands) {
-    commands.insert_resource(WallMaterial(
-        materials.add(Color::from(tailwind::SLATE_400)),
-    ));
+    commands.insert_resource(WallMaterial(materials.add(StandardMaterial {
+        base_color: Color::from(tailwind::SLATE_400),
+        perceptual_roughness: 1.0,
+        ..default()
+    })));
 }
 
 fn spawn_camera(mut commands: Commands) {
@@ -212,6 +258,14 @@ fn spawn_light(mut commands: Commands) {
         DirectionalLight::default(),
         Transform::from_xyz(0.75, 2.0, 0.5).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+}
+
+fn spawn_level_state(mut commands: Commands) {
+    commands.spawn(LevelState);
+}
+
+fn spawn_score_label(mut commands: Commands) {
+    commands.spawn(ScoreLabel);
 }
 
 fn spawn_walls(mut commands: Commands) {
@@ -408,5 +462,24 @@ fn spawn_food(
 fn apply_grid_position(mut query: Query<(&GridPosition, &mut Transform), Changed<GridPosition>>) {
     for (grid_position, mut transform) in query.iter_mut() {
         transform.translation = grid_position.0.as_vec3();
+    }
+}
+
+fn increment_score(mut food_eaten: EventReader<FoodEaten>, mut query: Query<&mut Score>) {
+    for _ in food_eaten.read() {
+        for mut score in query.iter_mut() {
+            score.0 += 1;
+        }
+    }
+}
+
+fn update_score_label(
+    score_query: Query<&Score, Changed<Score>>,
+    mut label_query: Query<&mut Text, With<ScoreLabel>>,
+) {
+    for score in score_query.iter() {
+        for mut text in label_query.iter_mut() {
+            text.0 = score.0.to_string();
+        }
     }
 }
