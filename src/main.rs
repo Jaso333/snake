@@ -86,7 +86,6 @@ struct WallMaterial(Handle<StandardMaterial>);
 #[require(
     SnakeVisual,
     SnakeMoveTimer,
-    SnakeNextDirection,
     SnakeDirection,
     SnakeBodyBuffer,
     GridPosition
@@ -143,20 +142,11 @@ impl Default for SnakeMoveTimer {
 }
 
 #[derive(Component)]
-struct SnakeNextDirection(Dir3);
-
-impl Default for SnakeNextDirection {
-    fn default() -> Self {
-        Self(Dir3::NEG_Z)
-    }
-}
-
-#[derive(Component)]
 struct SnakeDirection(Dir3);
 
 impl Default for SnakeDirection {
     fn default() -> Self {
-        Self(SnakeNextDirection::default().0)
+        Self(Dir3::NEG_Z)
     }
 }
 
@@ -331,11 +321,10 @@ fn spawn_initial_food(mut food_needed: EventWriter<FoodNeeded>) {
 fn move_snake(
     mut head_query: Query<
         (
-            &SnakeNextDirection,
+            &SnakeDirection,
             &mut SnakeMoveTimer,
             &mut GridPosition,
             &mut SnakeBodyBuffer,
-            &mut SnakeDirection,
         ),
         Without<SnakeBodyIndex>,
     >,
@@ -343,16 +332,14 @@ fn move_snake(
     time: Res<Time>,
     mut commands: Commands,
 ) {
-    for (next_direction, mut timer, mut grid_position, mut buffer, mut direction) in
-        head_query.iter_mut()
-    {
+    for (direction, mut timer, mut grid_position, mut buffer) in head_query.iter_mut() {
         if !timer.0.tick(time.delta()).just_finished() {
             continue;
         }
 
         // move the head forward by the snake's direction, detecting arena bounds collision
         let prev_position = grid_position.0;
-        let next_position = grid_position.0 + next_direction.0.as_ivec3();
+        let next_position = grid_position.0 + direction.0.as_ivec3();
 
         // check the next position for a wall or any other snake part
         if [next_position.x, next_position.z]
@@ -363,8 +350,7 @@ fn move_snake(
             timer.0.pause();
             continue;
         }
-        grid_position.0 += next_direction.0.as_ivec3();
-        direction.0 = next_direction.0;
+        grid_position.0 += direction.0.as_ivec3();
 
         // set the defaults for the next body piece
         let mut next_body_index = 0;
@@ -403,32 +389,45 @@ fn move_snake(
 }
 
 fn control_snake(
-    mut query: Query<(&mut SnakeNextDirection, &SnakeDirection)>,
+    mut query: Query<(&mut SnakeDirection, &mut SnakeMoveTimer)>,
     input: Res<ButtonInput<KeyCode>>,
 ) {
-    // latching input respects only the final input, even if it was invalid for the current direction
-    for (mut next_direction, direction) in query.iter_mut() {
+    for (mut direction, mut timer) in query.iter_mut() {
+        let mut input_direction = None;
         if input.just_pressed(KeyCode::KeyA) {
-            next_direction.0 = match direction.0 {
-                Dir3::X => direction.0,
-                _ => Dir3::NEG_X,
-            };
+            input_direction = Some(Dir3::NEG_X);
         } else if input.just_pressed(KeyCode::KeyD) {
-            next_direction.0 = match direction.0 {
-                Dir3::NEG_X => direction.0,
-                _ => Dir3::X,
-            };
+            input_direction = Some(Dir3::X);
         } else if input.just_pressed(KeyCode::KeyW) {
-            next_direction.0 = match direction.0 {
-                Dir3::Z => direction.0,
-                _ => Dir3::NEG_Z,
-            };
-        } else if input.just_pressed(KeyCode::KeyS) && direction.0 != Dir3::NEG_Z {
-            next_direction.0 = match direction.0 {
-                Dir3::NEG_Z => direction.0,
-                _ => Dir3::Z,
-            };
+            input_direction = Some(Dir3::NEG_Z);
+        } else if input.just_pressed(KeyCode::KeyS) {
+            input_direction = Some(Dir3::Z);
         }
+
+        // stop here if no input
+        let Some(input_direction) = input_direction else {
+            continue;
+        };
+
+        // don't do anything if trying to 180 the snake
+        if input_direction
+            == match direction.0 {
+                Dir3::NEG_X => Dir3::X,
+                Dir3::X => Dir3::NEG_X,
+                Dir3::NEG_Z => Dir3::Z,
+                Dir3::Z => Dir3::NEG_Z,
+                _ => continue,
+            }
+        {
+            continue;
+        }
+
+        // set the new direction
+        direction.0 = input_direction;
+
+        // immediately move - this give more natural input feel
+        let duration = timer.0.duration();
+        timer.0.set_elapsed(duration);
     }
 }
 
