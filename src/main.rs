@@ -28,18 +28,7 @@ fn main() {
                 insert_wall_material,
             ),
         )
-        .add_systems(
-            Startup,
-            (
-                spawn_camera,
-                spawn_light,
-                spawn_level_state,
-                spawn_score_label,
-                spawn_walls,
-                spawn_snake,
-                spawn_initial_food,
-            ),
-        )
+        .add_systems(Startup, (spawn_camera, spawn_light, spawn_level))
         .add_systems(
             FixedUpdate,
             (
@@ -61,6 +50,60 @@ fn main() {
         .add_systems(Update, control_snake)
         .add_systems(PostUpdate, apply_grid_position)
         .run();
+}
+
+// - COMMANDS -
+
+struct SpawnLevel;
+
+impl Command for SpawnLevel {
+    fn apply(self, world: &mut World) {
+        world.spawn(LevelState);
+        world.spawn(ScoreLabel);
+
+        // left
+        world.spawn((
+            Wall,
+            Transform::from_xyz(-ARENA_HALF_SIZE as f32 - 1.0, 0.0, 0.0).with_scale(Vec3::new(
+                1.0,
+                1.0,
+                ARENA_SIZE as f32 + 2.0,
+            )),
+        ));
+
+        // right
+        world.spawn((
+            Wall,
+            Transform::from_xyz(ARENA_HALF_SIZE as f32 + 1.0, 0.0, 0.0).with_scale(Vec3::new(
+                1.0,
+                1.0,
+                ARENA_SIZE as f32 + 2.0,
+            )),
+        ));
+
+        // top
+        world.spawn((
+            Wall,
+            Transform::from_xyz(0.0, 0.0, -ARENA_HALF_SIZE as f32 - 1.0).with_scale(Vec3::new(
+                ARENA_SIZE as f32,
+                1.0,
+                1.0,
+            )),
+        ));
+
+        // bottom
+        world.spawn((
+            Wall,
+            Transform::from_xyz(0.0, 0.0, ARENA_HALF_SIZE as f32 + 1.0).with_scale(Vec3::new(
+                ARENA_SIZE as f32,
+                1.0,
+                1.0,
+            )),
+        ));
+
+        world.spawn(SnakeHead);
+        world.send_event(FoodNeeded);
+    }
 }
 
 // - EVENTS -
@@ -292,62 +335,8 @@ fn spawn_light(mut commands: Commands) {
     ));
 }
 
-fn spawn_level_state(mut commands: Commands) {
-    commands.spawn(LevelState);
-}
-
-fn spawn_score_label(mut commands: Commands) {
-    commands.spawn(ScoreLabel);
-}
-
-fn spawn_walls(mut commands: Commands) {
-    // left
-    commands.spawn((
-        Wall,
-        Transform::from_xyz(-ARENA_HALF_SIZE as f32 - 1.0, 0.0, 0.0).with_scale(Vec3::new(
-            1.0,
-            1.0,
-            ARENA_SIZE as f32 + 2.0,
-        )),
-    ));
-
-    // right
-    commands.spawn((
-        Wall,
-        Transform::from_xyz(ARENA_HALF_SIZE as f32 + 1.0, 0.0, 0.0).with_scale(Vec3::new(
-            1.0,
-            1.0,
-            ARENA_SIZE as f32 + 2.0,
-        )),
-    ));
-
-    // top
-    commands.spawn((
-        Wall,
-        Transform::from_xyz(0.0, 0.0, -ARENA_HALF_SIZE as f32 - 1.0).with_scale(Vec3::new(
-            ARENA_SIZE as f32,
-            1.0,
-            1.0,
-        )),
-    ));
-
-    // bottom
-    commands.spawn((
-        Wall,
-        Transform::from_xyz(0.0, 0.0, ARENA_HALF_SIZE as f32 + 1.0).with_scale(Vec3::new(
-            ARENA_SIZE as f32,
-            1.0,
-            1.0,
-        )),
-    ));
-}
-
-fn spawn_snake(mut commands: Commands) {
-    commands.spawn(SnakeHead);
-}
-
-fn spawn_initial_food(mut food_needed: EventWriter<FoodNeeded>) {
-    food_needed.send(FoodNeeded);
+fn spawn_level(mut commands: Commands) {
+    commands.queue(SpawnLevel);
 }
 
 fn move_snake(
