@@ -3,9 +3,6 @@ use rand::{thread_rng, Rng};
 
 // - CONSTANTS -
 
-const ARENA_SIZE: i32 = 11;
-const ARENA_HALF_SIZE: i32 = ARENA_SIZE / 2;
-
 // - ENTRY -
 
 fn main() {
@@ -32,6 +29,7 @@ fn main() {
         .add_systems(
             FixedUpdate,
             (
+                resize_walls,
                 move_snake,
                 (
                     (
@@ -79,47 +77,13 @@ impl Command for SpawnLevel {
         world.spawn(LevelState);
         world.spawn(ScoreLabel);
 
-        // left
-        world.spawn((
-            Wall,
-            Transform::from_xyz(-ARENA_HALF_SIZE as f32 - 1.0, 0.0, 0.0).with_scale(Vec3::new(
-                1.0,
-                1.0,
-                ARENA_SIZE as f32 + 2.0,
-            )),
-        ));
-
-        // right
-        world.spawn((
-            Wall,
-            Transform::from_xyz(ARENA_HALF_SIZE as f32 + 1.0, 0.0, 0.0).with_scale(Vec3::new(
-                1.0,
-                1.0,
-                ARENA_SIZE as f32 + 2.0,
-            )),
-        ));
-
-        // top
-        world.spawn((
-            Wall,
-            Transform::from_xyz(0.0, 0.0, -ARENA_HALF_SIZE as f32 - 1.0).with_scale(Vec3::new(
-                ARENA_SIZE as f32,
-                1.0,
-                1.0,
-            )),
-        ));
-
-        // bottom
-        world.spawn((
-            Wall,
-            Transform::from_xyz(0.0, 0.0, ARENA_HALF_SIZE as f32 + 1.0).with_scale(Vec3::new(
-                ARENA_SIZE as f32,
-                1.0,
-                1.0,
-            )),
-        ));
+        world.spawn((Wall, WallDirection(Dir3::NEG_X)));
+        world.spawn((Wall, WallDirection(Dir3::X)));
+        world.spawn((Wall, WallDirection(Dir3::NEG_Z)));
+        world.spawn((Wall, WallDirection(Dir3::Z)));
 
         world.spawn(SnakeHead);
+
         world.send_event(FoodNeeded);
     }
 }
@@ -178,7 +142,7 @@ struct Food;
 struct Wall;
 
 #[derive(Component)]
-#[require(GameEntity, Score)]
+#[require(GameEntity, Score, ArenaSize)]
 struct LevelState;
 
 #[derive(Component)]
@@ -229,6 +193,9 @@ impl GameOverUi {
 #[derive(Component, Default)]
 struct GameEntity;
 
+#[derive(Component)]
+struct WallDirection(Dir3);
+
 #[derive(Component, Default)]
 struct SnakeVisual;
 
@@ -237,7 +204,7 @@ struct SnakeMoveTimer(Timer);
 
 impl Default for SnakeMoveTimer {
     fn default() -> Self {
-        Self(Timer::from_seconds(0.5, TimerMode::Repeating))
+        Self(Timer::from_seconds(0.3, TimerMode::Repeating))
     }
 }
 
@@ -267,6 +234,21 @@ struct GridPosition(IVec3);
 
 #[derive(Component, Default)]
 struct Score(u32);
+
+#[derive(Component)]
+struct ArenaSize(i32);
+
+impl Default for ArenaSize {
+    fn default() -> Self {
+        Self(11)
+    }
+}
+
+impl ArenaSize {
+    const fn half_size(&self) -> i32 {
+        self.0 / 2
+    }
+}
 
 // - OBSERVERS -
 
@@ -386,6 +368,26 @@ fn spawn_level(mut commands: Commands) {
     commands.queue(SpawnLevel);
 }
 
+fn resize_walls(
+    arena_query: Query<&ArenaSize, Changed<ArenaSize>>,
+    mut wall_query: Query<(&WallDirection, &mut Transform)>,
+) {
+    for arena_size in arena_query.iter() {
+        for (direction, mut transform) in wall_query.iter_mut() {
+            transform.translation = direction.0.as_vec3() * (arena_size.half_size() as f32 + 1.0);
+
+            let scale_dir = if direction.0.x != 0.0 {
+                Vec3::new(0.0, 0.0, 1.0)
+            } else {
+                Vec3::new(1.0, 0.0, 0.0)
+            };
+
+            transform.scale =
+                (Vec3::ONE - scale_dir) + scale_dir * arena_size.0 as f32 + (scale_dir * 2.0);
+        }
+    }
+}
+
 fn move_snake(
     mut head_query: Query<
         (
@@ -397,10 +399,17 @@ fn move_snake(
         Without<SnakeBodyIndex>,
     >,
     mut body_query: Query<(&mut SnakeBodyIndex, &mut GridPosition)>,
+    arena_query: Query<&ArenaSize>,
     time: Res<Time>,
     mut snake_collided: EventWriter<SnakeCollided>,
     mut commands: Commands,
 ) {
+    if arena_query.is_empty() {
+        return;
+    }
+
+    let arena_size = arena_query.single();
+
     for (direction, mut timer, mut grid_position, mut buffer) in head_query.iter_mut() {
         if !timer.0.tick(time.delta()).just_finished() {
             continue;
@@ -413,7 +422,7 @@ fn move_snake(
         // check the next position for a wall or any other snake part
         if [next_position.x, next_position.z]
             .iter()
-            .any(|e| e > &ARENA_HALF_SIZE || e < &-ARENA_HALF_SIZE)
+            .any(|e| e > &arena_size.half_size() || e < &-arena_size.half_size())
             || body_query.iter().any(|(_, gp)| gp.0 == next_position)
         {
             timer.0.pause();
@@ -533,18 +542,23 @@ fn spawn_next_food(
 
 fn spawn_food(
     mut food_needed: EventReader<FoodNeeded>,
-    query: Query<&GridPosition>,
+    grid_query: Query<&GridPosition>,
+    arena_query: Query<&ArenaSize>,
     mut commands: Commands,
 ) {
     if food_needed.is_empty() {
         return;
     }
 
-    let mut pool = Vec::with_capacity(ARENA_SIZE as usize * ARENA_SIZE as usize);
-    for x in -ARENA_HALF_SIZE..=ARENA_HALF_SIZE {
-        for z in -ARENA_HALF_SIZE..=ARENA_HALF_SIZE {
+    let Some(arena_size) = arena_query.iter().next() else {
+        return;
+    };
+
+    let mut pool = Vec::with_capacity(arena_size.0 as usize * arena_size.0 as usize);
+    for x in -arena_size.half_size()..=arena_size.half_size() {
+        for z in -arena_size.half_size()..=arena_size.half_size() {
             let grid_position = GridPosition(IVec3::new(x, 0, z));
-            if query.iter().all(|gp| gp != &grid_position) {
+            if grid_query.iter().all(|gp| gp != &grid_position) {
                 pool.push(grid_position);
             }
         }
