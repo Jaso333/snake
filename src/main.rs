@@ -54,6 +54,24 @@ fn main() {
 
 // - COMMANDS -
 
+struct DespawnGameEntities;
+
+impl Command for DespawnGameEntities {
+    fn apply(self, world: &mut World) {
+        let entities: Vec<_> = world
+            .query_filtered::<Entity, With<GameEntity>>()
+            .iter(&world)
+            .collect();
+
+        let mut commands = world.commands();
+        for entity in entities {
+            commands.entity(entity).despawn_recursive();
+        }
+
+        world.flush();
+    }
+}
+
 struct SpawnLevel;
 
 impl Command for SpawnLevel {
@@ -138,6 +156,7 @@ struct WallMaterial(Handle<StandardMaterial>);
 
 #[derive(Component)]
 #[require(
+    GameEntity,
     SnakeVisual,
     SnakeMoveTimer,
     SnakeDirection,
@@ -147,24 +166,28 @@ struct WallMaterial(Handle<StandardMaterial>);
 struct SnakeHead;
 
 #[derive(Component)]
-#[require(SnakeVisual)]
+#[require(GameEntity, SnakeVisual)]
 struct SnakeBodySegment;
 
 #[derive(Component)]
+#[require(GameEntity)]
 struct Food;
 
-#[derive(Component, Default)]
-struct SnakeVisual;
-
 #[derive(Component)]
+#[require(GameEntity)]
 struct Wall;
 
 #[derive(Component)]
-#[require(Score)]
+#[require(GameEntity, Score)]
 struct LevelState;
 
 #[derive(Component)]
-#[require(Text(Self::text), Node(Self::node), TextFont(Self::text_font))]
+#[require(
+    GameEntity,
+    Text(Self::text),
+    Node(Self::node),
+    TextFont(Self::text_font)
+)]
 struct ScoreLabel;
 
 impl ScoreLabel {
@@ -185,7 +208,7 @@ impl ScoreLabel {
 }
 
 #[derive(Component)]
-#[require(Node(Self::node))]
+#[require(GameEntity, Node(Self::node))]
 struct GameOverUi;
 
 impl GameOverUi {
@@ -194,12 +217,20 @@ impl GameOverUi {
             display: Display::Grid,
             align_self: AlignSelf::Center,
             justify_self: JustifySelf::Center,
+            justify_items: JustifyItems::Center,
+            row_gap: Val::Px(5.),
             ..default()
         }
     }
 }
 
 // - COMPONENTS -
+
+#[derive(Component, Default)]
+struct GameEntity;
+
+#[derive(Component, Default)]
+struct SnakeVisual;
 
 #[derive(Component)]
 struct SnakeMoveTimer(Timer);
@@ -237,7 +268,7 @@ struct GridPosition(IVec3);
 #[derive(Component, Default)]
 struct Score(u32);
 
-// - OBSERVERS -
+// - CONSTRUCTORS -
 
 fn construct_snake_visual(
     trigger: Trigger<OnAdd, SnakeVisual>,
@@ -278,7 +309,25 @@ fn construct_wall(
 fn construct_game_over_ui(trigger: Trigger<OnAdd, GameOverUi>, mut commands: Commands) {
     commands.entity(trigger.entity()).with_children(|cb| {
         cb.spawn((Text::new("Game Over"), TextFont::from_font_size(64.)));
+        cb.spawn((
+            Button,
+            Node {
+                padding: UiRect::all(Val::Px(10.)),
+                ..default()
+            },
+            BackgroundColor(Color::WHITE.with_alpha(0.5)),
+        ))
+        .observe(on_restart_button_click)
+        .with_child(Text::new("Restart"));
     });
+}
+
+// - TRIGGERS -
+
+fn on_restart_button_click(mut trigger: Trigger<Pointer<Click>>, mut commands: Commands) {
+    trigger.propagate(false);
+    commands.queue(DespawnGameEntities);
+    commands.queue(SpawnLevel);
 }
 
 // - SYSTEMS -
