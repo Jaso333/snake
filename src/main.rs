@@ -25,18 +25,18 @@ fn main() {
                 insert_wall_material,
             ),
         )
-        .add_systems(Startup, (spawn_camera, spawn_light, spawn_level))
+        .add_systems(Startup, (spawn_light, spawn_level))
         .add_systems(
             FixedUpdate,
             (
-                resize_walls,
+                (resize_walls, resize_view),
                 move_snake,
                 (
                     (
                         eat_food,
                         (
                             (spawn_next_food, spawn_food).chain(),
-                            (increment_score, update_score_label).chain(),
+                            (increment_score, (update_score_label, expand_arena)).chain(),
                         )
                             .chain(),
                     ),
@@ -74,6 +74,7 @@ struct SpawnLevel;
 
 impl Command for SpawnLevel {
     fn apply(self, world: &mut World) {
+        world.spawn(LevelCamera);
         world.spawn(LevelState);
         world.spawn(ScoreLabel);
 
@@ -116,7 +117,7 @@ struct FoodMesh(Handle<Mesh>);
 #[derive(Resource)]
 struct WallMaterial(Handle<StandardMaterial>);
 
-// - SCENE COMPONENTS -
+// - COMPONENTS -
 
 #[derive(Component)]
 #[require(
@@ -188,7 +189,29 @@ impl GameOverUi {
     }
 }
 
-// - COMPONENTS -
+#[derive(Component)]
+#[require(
+    GameEntity,
+    Camera3d,
+    Projection(Self::projection),
+    Transform(Self::transform)
+)]
+struct LevelCamera;
+
+impl LevelCamera {
+    fn projection() -> Projection {
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::FixedVertical {
+                viewport_height: 16.0,
+            },
+            ..OrthographicProjection::default_2d()
+        })
+    }
+
+    fn transform() -> Transform {
+        Transform::from_xyz(0.5, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y)
+    }
+}
 
 #[derive(Component, Default)]
 struct GameEntity;
@@ -247,6 +270,10 @@ impl Default for ArenaSize {
 impl ArenaSize {
     const fn half_size(&self) -> i32 {
         self.0 / 2
+    }
+
+    fn area(&self) -> i32 {
+        self.0 * self.0
     }
 }
 
@@ -344,19 +371,6 @@ fn insert_wall_material(mut materials: ResMut<Assets<StandardMaterial>>, mut com
     })));
 }
 
-fn spawn_camera(mut commands: Commands) {
-    commands.spawn((
-        Camera3d::default(),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical {
-                viewport_height: 16.0,
-            },
-            ..OrthographicProjection::default_2d()
-        }),
-        Transform::from_xyz(1.0, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-}
-
 fn spawn_light(mut commands: Commands) {
     commands.spawn((
         DirectionalLight::default(),
@@ -384,6 +398,21 @@ fn resize_walls(
 
             transform.scale =
                 (Vec3::ONE - scale_dir) + scale_dir * arena_size.0 as f32 + (scale_dir * 2.0);
+        }
+    }
+}
+
+fn resize_view(
+    arena_query: Query<&ArenaSize, Changed<ArenaSize>>,
+    mut camera_query: Query<&mut Projection, With<LevelCamera>>,
+) {
+    const OFFSET: f32 = 4.0;
+    for arena_size in arena_query.iter() {
+        let viewport_height = arena_size.0 as f32 + OFFSET;
+        for projection in camera_query.iter_mut() {
+            if let Projection::Orthographic(projection) = projection.into_inner() {
+                projection.scaling_mode = ScalingMode::FixedVertical { viewport_height };
+            }
         }
     }
 }
@@ -554,7 +583,7 @@ fn spawn_food(
         return;
     };
 
-    let mut pool = Vec::with_capacity(arena_size.0 as usize * arena_size.0 as usize);
+    let mut pool = Vec::with_capacity(arena_size.area() as usize);
     for x in -arena_size.half_size()..=arena_size.half_size() {
         for z in -arena_size.half_size()..=arena_size.half_size() {
             let grid_position = GridPosition(IVec3::new(x, 0, z));
@@ -604,4 +633,12 @@ fn spawn_game_over_ui(mut snake_collided: EventReader<SnakeCollided>, mut comman
 
     snake_collided.clear();
     commands.spawn(GameOverUi);
+}
+
+fn expand_arena(mut query: Query<(&Score, &mut ArenaSize), Changed<Score>>) {
+    for (score, mut arena_size) in query.iter_mut() {
+        if score.0 >= arena_size.area() as u32 / 4 {
+            arena_size.0 += 2;
+        }
+    }
 }
