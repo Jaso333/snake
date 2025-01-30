@@ -13,9 +13,11 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_event::<FoodEaten>()
         .add_event::<FoodNeeded>()
+        .add_event::<SnakeCollided>()
         .add_observer(construct_snake_visual)
         .add_observer(construct_food)
         .add_observer(construct_wall)
+        .add_observer(construct_game_over_ui)
         .add_systems(
             PreStartup,
             (
@@ -42,10 +44,16 @@ fn main() {
             FixedUpdate,
             (
                 move_snake,
-                eat_food,
                 (
-                    (spawn_next_food, spawn_food).chain(),
-                    (increment_score, update_score_label).chain(),
+                    (
+                        eat_food,
+                        (
+                            (spawn_next_food, spawn_food).chain(),
+                            (increment_score, update_score_label).chain(),
+                        )
+                            .chain(),
+                    ),
+                    spawn_game_over_ui,
                 ),
             )
                 .chain(),
@@ -62,6 +70,9 @@ struct FoodEaten;
 
 #[derive(Event)]
 struct FoodNeeded;
+
+#[derive(Event)]
+struct SnakeCollided;
 
 // - RESOURCES -
 
@@ -127,6 +138,21 @@ impl ScoreLabel {
 
     fn text_font() -> TextFont {
         TextFont::from_font_size(48.)
+    }
+}
+
+#[derive(Component)]
+#[require(Node(Self::node))]
+struct GameOverUi;
+
+impl GameOverUi {
+    fn node() -> Node {
+        Node {
+            display: Display::Grid,
+            align_self: AlignSelf::Center,
+            justify_self: JustifySelf::Center,
+            ..default()
+        }
     }
 }
 
@@ -204,6 +230,12 @@ fn construct_wall(
         Mesh3d(unit_cube_mesh.0.clone()),
         MeshMaterial3d(wall_material.0.clone()),
     ));
+}
+
+fn construct_game_over_ui(trigger: Trigger<OnAdd, GameOverUi>, mut commands: Commands) {
+    commands.entity(trigger.entity()).with_children(|cb| {
+        cb.spawn((Text::new("Game Over"), TextFont::from_font_size(64.)));
+    });
 }
 
 // - SYSTEMS -
@@ -330,6 +362,7 @@ fn move_snake(
     >,
     mut body_query: Query<(&mut SnakeBodyIndex, &mut GridPosition)>,
     time: Res<Time>,
+    mut snake_collided: EventWriter<SnakeCollided>,
     mut commands: Commands,
 ) {
     for (direction, mut timer, mut grid_position, mut buffer) in head_query.iter_mut() {
@@ -348,6 +381,7 @@ fn move_snake(
             || body_query.iter().any(|(_, gp)| gp.0 == next_position)
         {
             timer.0.pause();
+            snake_collided.send(SnakeCollided);
             continue;
         }
         grid_position.0 += direction.0.as_ivec3();
@@ -511,4 +545,13 @@ fn update_score_label(
             text.0 = score.0.to_string();
         }
     }
+}
+
+fn spawn_game_over_ui(mut snake_collided: EventReader<SnakeCollided>, mut commands: Commands) {
+    if snake_collided.is_empty() {
+        return;
+    }
+
+    snake_collided.clear();
+    commands.spawn(GameOverUi);
 }
