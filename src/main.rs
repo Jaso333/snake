@@ -14,10 +14,10 @@ fn main() {
         .add_event::<FoodEaten>()
         .add_event::<FoodNeeded>()
         .add_event::<SnakeCollided>()
-        .add_observer(construct_snake_visual)
-        .add_observer(construct_food)
-        .add_observer(construct_wall)
-        .add_observer(construct_game_over_ui)
+        .add_observer(on_add_snake_visual)
+        .add_observer(on_add_food)
+        .add_observer(on_add_wall)
+        .add_observer(on_add_game_over_ui)
         .add_systems(
             PreStartup,
             (
@@ -268,9 +268,9 @@ struct GridPosition(IVec3);
 #[derive(Component, Default)]
 struct Score(u32);
 
-// - CONSTRUCTORS -
+// - OBSERVERS -
 
-fn construct_snake_visual(
+fn on_add_snake_visual(
     trigger: Trigger<OnAdd, SnakeVisual>,
     snake_material: Res<SnakeMaterial>,
     unit_cube_mesh: Res<UnitCubeMesh>,
@@ -282,7 +282,7 @@ fn construct_snake_visual(
     ));
 }
 
-fn construct_food(
+fn on_add_food(
     trigger: Trigger<OnAdd, Food>,
     food_material: Res<FoodMaterial>,
     food_mesh: Res<FoodMesh>,
@@ -294,7 +294,7 @@ fn construct_food(
     ));
 }
 
-fn construct_wall(
+fn on_add_wall(
     trigger: Trigger<OnAdd, Wall>,
     wall_material: Res<WallMaterial>,
     unit_cube_mesh: Res<UnitCubeMesh>,
@@ -306,7 +306,7 @@ fn construct_wall(
     ));
 }
 
-fn construct_game_over_ui(trigger: Trigger<OnAdd, GameOverUi>, mut commands: Commands) {
+fn on_add_game_over_ui(trigger: Trigger<OnAdd, GameOverUi>, mut commands: Commands) {
     commands.entity(trigger.entity()).with_children(|cb| {
         cb.spawn((Text::new("Game Over"), TextFont::from_font_size(64.)));
         cb.spawn((
@@ -321,8 +321,6 @@ fn construct_game_over_ui(trigger: Trigger<OnAdd, GameOverUi>, mut commands: Com
         .with_child(Text::new("Restart"));
     });
 }
-
-// - TRIGGERS -
 
 fn on_restart_button_click(mut trigger: Trigger<Pointer<Click>>, mut commands: Commands) {
     trigger.propagate(false);
