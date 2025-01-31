@@ -1,4 +1,8 @@
 use bevy::{color::palettes::tailwind, prelude::*, render::camera::ScalingMode};
+use bevy_asset_loader::{
+    asset_collection::AssetCollection,
+    loading_state::{config::ConfigureLoadingState, LoadingState, LoadingStateAppExt},
+};
 use rand::{thread_rng, Rng};
 
 // - CONSTANTS -
@@ -8,9 +12,16 @@ use rand::{thread_rng, Rng};
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .init_state::<GameState>()
+        .add_loading_state(
+            LoadingState::new(GameState::Load)
+                .continue_to_state(GameState::Play)
+                .load_collection::<GameFont>(),
+        )
         .add_event::<FoodEaten>()
         .add_event::<FoodNeeded>()
         .add_event::<SnakeCollided>()
+        .add_observer(on_add_text_font)
         .add_observer(on_add_snake_visual)
         .add_observer(on_add_food)
         .add_observer(on_add_wall)
@@ -25,7 +36,7 @@ fn main() {
                 insert_wall_material,
             ),
         )
-        .add_systems(Startup, (spawn_light, spawn_level))
+        .add_systems(OnEnter(GameState::Play), (spawn_light, spawn_level))
         .add_systems(
             FixedUpdate,
             (
@@ -89,6 +100,15 @@ impl Command for SpawnLevel {
     }
 }
 
+// - STATES -
+
+#[derive(States, Default, Debug, Hash, PartialEq, Eq, Clone)]
+enum GameState {
+    #[default]
+    Load,
+    Play,
+}
+
 // - EVENTS -
 
 #[derive(Event)]
@@ -116,6 +136,12 @@ struct FoodMesh(Handle<Mesh>);
 
 #[derive(Resource)]
 struct WallMaterial(Handle<StandardMaterial>);
+
+#[derive(Resource, AssetCollection)]
+struct GameFont {
+    #[asset(path = "font.ttf")]
+    value: Handle<Font>,
+}
 
 // - COMPONENTS -
 
@@ -278,6 +304,14 @@ impl ArenaSize {
 }
 
 // - OBSERVERS -
+
+fn on_add_text_font(
+    trigger: Trigger<OnAdd, TextFont>,
+    mut query: Query<&mut TextFont>,
+    game_font: Res<GameFont>,
+) {
+    query.get_mut(trigger.entity()).unwrap().font = game_font.value.clone();
+}
 
 fn on_add_snake_visual(
     trigger: Trigger<OnAdd, SnakeVisual>,
