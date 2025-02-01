@@ -1,8 +1,11 @@
-use bevy::{color::palettes::tailwind, prelude::*};
+use std::f32::consts::PI;
+
+use bevy::prelude::*;
+use bevy_asset_loader::prelude::*;
 
 use crate::{
     arena::{ArenaSet, ArenaSize},
-    game::{GameEntity, SpawnLevel, UnitCubeMesh},
+    game::{AppExt, GameEntity, SpawnLevel},
     grid::{GridPosition, GridSet},
 };
 
@@ -10,12 +13,17 @@ pub struct SnakePlugin;
 
 impl Plugin for SnakePlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(FixedUpdate, SnakeSet.after(ArenaSet).before(GridSet))
+        app.add_game_assets::<BodyStraightScene>()
+            .configure_sets(FixedUpdate, SnakeSet.after(ArenaSet).before(GridSet))
             .add_observer(on_spawn_level)
             .add_observer(on_add_snake_visual)
-            .add_systems(PreStartup, insert_snake_material)
             .add_systems(Update, control_snake)
-            .add_systems(FixedUpdate, move_snake.in_set(SnakeSet));
+            .add_systems(
+                FixedUpdate,
+                (move_snake, (visualise_snake_head, visualise_snake_body))
+                    .chain()
+                    .in_set(SnakeSet),
+            );
     }
 }
 
@@ -25,8 +33,11 @@ pub struct SnakeSet;
 #[derive(Event)]
 pub struct SnakeCollided;
 
-#[derive(Resource)]
-struct SnakeMaterial(Handle<StandardMaterial>);
+#[derive(Resource, AssetCollection)]
+struct BodyStraightScene {
+    #[asset(path = "body_straight.glb#Scene0")]
+    value: Handle<Scene>,
+}
 
 #[derive(Component)]
 #[require(
@@ -44,7 +55,7 @@ pub struct SnakeHead;
 struct SnakeBodySegment;
 
 #[derive(Component, Default)]
-#[require(Mesh3d, MeshMaterial3d<StandardMaterial>)]
+#[require(SceneRoot)]
 struct SnakeVisual;
 
 #[derive(Component)]
@@ -83,21 +94,11 @@ fn on_spawn_level(_: Trigger<SpawnLevel>, mut commands: Commands) {
 
 fn on_add_snake_visual(
     trigger: Trigger<OnAdd, SnakeVisual>,
-    snake_material: Res<SnakeMaterial>,
-    unit_cube_mesh: Res<UnitCubeMesh>,
-    mut query: Query<(&mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>)>,
+    body_straight_scene: Res<BodyStraightScene>,
+    mut query: Query<&mut SceneRoot>,
 ) {
-    let (mut mesh, mut material) = query.get_mut(trigger.entity()).unwrap();
-    mesh.0 = unit_cube_mesh.0.clone();
-    material.0 = snake_material.0.clone();
-}
-
-fn insert_snake_material(mut materials: ResMut<Assets<StandardMaterial>>, mut commands: Commands) {
-    commands.insert_resource(SnakeMaterial(materials.add(StandardMaterial {
-        base_color: Color::from(tailwind::GREEN_500),
-        perceptual_roughness: 1.0,
-        ..default()
-    })));
+    let mut scene_root = query.get_mut(trigger.entity()).unwrap();
+    scene_root.0 = body_straight_scene.value.clone();
 }
 
 fn control_snake(
@@ -153,7 +154,7 @@ fn move_snake(
         ),
         Without<SnakeBodyIndex>,
     >,
-    mut body_query: Query<(&mut SnakeBodyIndex, &mut GridPosition)>,
+    mut body_query: Query<(&SnakeBodyIndex, &mut GridPosition)>,
     arena_query: Query<&ArenaSize>,
     time: Res<Time>,
     mut commands: Commands,
@@ -170,7 +171,7 @@ fn move_snake(
         }
 
         // move the head forward by the snake's direction, detecting arena bounds collision
-        let prev_position = grid_position.0;
+        let mut prev_position = grid_position.0;
         let next_position = grid_position.0 + direction.0.as_ivec3();
 
         // check the next position for a wall or any other snake part
@@ -185,25 +186,13 @@ fn move_snake(
         }
         grid_position.0 += direction.0.as_ivec3();
 
-        // set the defaults for the next body piece
-        let mut next_body_index = 0;
-        let mut next_body_position = prev_position;
-
-        // get the current max index
-        if let Some((max_index, _)) = body_query.iter().max_by(|(i1, ..), (i2, ..)| i1.cmp(i2)) {
-            let max_index = max_index.0;
-
-            // find the segment at the back of the snake
-            if let Some((mut min_index, mut min_grid_position)) = body_query
-                .iter_mut()
-                .min_by(|(i1, ..), (i2, ..)| i1.cmp(i2))
-            {
-                // move the body segment from the back to the head's previous position
-                next_body_position = min_grid_position.0;
-                next_body_index = min_index.0;
-                min_index.0 = max_index + 1;
-                min_grid_position.0 = prev_position;
-            }
+        // shift all body segments forward
+        let mut last_index = 0;
+        for (index, mut grid_position) in body_query.iter_mut().sort::<&SnakeBodyIndex>() {
+            let temp_grid_position = grid_position.0;
+            grid_position.0 = prev_position;
+            prev_position = temp_grid_position;
+            last_index = index.0;
         }
 
         if buffer.0 == 0 {
@@ -212,11 +201,48 @@ fn move_snake(
 
         buffer.0 -= 1;
 
-        // spawn the next body segment to fill the moved segment
+        // spawn the next body segment to fill the last spot
         commands.spawn((
             SnakeBodySegment,
-            SnakeBodyIndex(next_body_index),
-            GridPosition(next_body_position),
+            SnakeBodyIndex(last_index + 1),
+            GridPosition(prev_position),
         ));
+    }
+}
+
+fn visualise_snake_head(
+    mut query: Query<(&SnakeDirection, &mut Transform), Changed<GridPosition>>,
+) {
+    for (direction, mut transform) in query.iter_mut() {
+        transform.rotation = Quat::from_rotation_y(match direction.0 {
+            Dir3::NEG_X | Dir3::X => PI / 2.0,
+            _ => 0.0,
+        });
+    }
+}
+
+fn visualise_snake_body(
+    mut body_query: Query<(Ref<GridPosition>, &SnakeBodyIndex, &mut Transform)>,
+    mut head_query: Query<&GridPosition, With<SnakeHead>>,
+) {
+    let Some(head_grid_position) = head_query.iter_mut().next() else {
+        return;
+    };
+
+    if body_query.iter().all(|(gp, ..)| !gp.is_changed()) {
+        return;
+    }
+
+    let mut next_grid_position = *head_grid_position;
+
+    for (grid_position, _, mut transform) in body_query.iter_mut().sort::<&SnakeBodyIndex>() {
+        transform.rotation =
+            Quat::from_rotation_y(if grid_position.0.z != next_grid_position.0.z {
+                0.0
+            } else {
+                PI / 2.0
+            });
+
+        next_grid_position = *grid_position;
     }
 }

@@ -9,6 +9,7 @@ mod snake;
 
 use arena::ArenaPlugin;
 use bevy::prelude::*;
+use bevy_tweening::TweeningPlugin;
 use food::FoodPlugin;
 use game::GamePlugin;
 use game_over::GameOverPlugin;
@@ -20,6 +21,7 @@ use snake::SnakePlugin;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(TweeningPlugin)
         .add_plugins(GamePlugin)
         .add_plugins(LevelPlugin)
         .add_plugins(HudPlugin)

@@ -18,6 +18,18 @@ impl Plugin for GamePlugin {
     }
 }
 
+pub trait AppExt {
+    fn add_game_assets<A: AssetCollection>(&mut self) -> &mut Self;
+}
+
+impl AppExt for App {
+    fn add_game_assets<A: AssetCollection>(&mut self) -> &mut Self {
+        self.configure_loading_state(
+            LoadingStateConfig::new(GameState::Load).load_collection::<A>(),
+        )
+    }
+}
+
 #[derive(Event)]
 pub struct DespawnGameEntities;
 
