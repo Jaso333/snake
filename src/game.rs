@@ -17,20 +17,8 @@ impl Plugin for GamePlugin {
     }
 }
 
-/// SpawnLevel should ONLY be used in command-form.
-/// The individual triggered events handle the ordering "callbacks".
 #[derive(Event)]
 pub struct SpawnLevel;
-
-impl Command for SpawnLevel {
-    fn apply(self, world: &mut World) {
-        world.trigger(SpawnLevel);
-        world.trigger(PostSpawnLevel);
-    }
-}
-
-#[derive(Event)]
-pub struct PostSpawnLevel;
 
 #[derive(States, Default, Debug, Hash, PartialEq, Eq, Clone)]
 enum GameState {
@@ -64,5 +52,5 @@ fn insert_unit_cube_mesh(mut meshes: ResMut<Assets<Mesh>>, mut commands: Command
 }
 
 fn spawn_level(mut commands: Commands) {
-    commands.queue(SpawnLevel);
+    commands.trigger(SpawnLevel);
 }

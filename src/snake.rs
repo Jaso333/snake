@@ -37,7 +37,7 @@ struct SnakeMaterial(Handle<StandardMaterial>);
     SnakeBodyBuffer,
     GridPosition
 )]
-struct SnakeHead;
+pub struct SnakeHead;
 
 #[derive(Component)]
 #[require(GameEntity, SnakeVisual)]
@@ -66,7 +66,7 @@ impl Default for SnakeDirection {
 }
 
 #[derive(Component)]
-struct SnakeBodyBuffer(usize);
+pub struct SnakeBodyBuffer(pub usize);
 
 #[derive(Component, PartialEq, Eq, PartialOrd, Ord)]
 struct SnakeBodyIndex(u32);
