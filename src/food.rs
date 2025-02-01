@@ -5,6 +5,7 @@ use crate::{
     arena::ArenaSize,
     game::GameEntity,
     grid::{GridPosition, GridSet},
+    level::Score,
     snake::{SnakeBodyBuffer, SnakeHead, SnakeSet},
 };
 
@@ -61,6 +62,7 @@ fn eat_food(
         (With<SnakeHead>, Changed<GridPosition>),
     >,
     food_query: Query<(Entity, &GridPosition), (With<Food>, Without<SnakeHead>)>,
+    mut score_query: Query<&mut Score>,
     mut commands: Commands,
 ) {
     for (snake_grid_position, mut buffer) in snake_query.iter_mut() {
@@ -70,6 +72,11 @@ fn eat_food(
         {
             commands.entity(food_entity).despawn_recursive();
             buffer.0 += 1; // extend the body
+
+            // increment the score
+            for mut score in score_query.iter_mut() {
+                score.0 += 1;
+            }
         }
     }
 }

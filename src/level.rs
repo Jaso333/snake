@@ -1,14 +1,22 @@
 use bevy::{prelude::*, render::camera::ScalingMode};
 
-use crate::game::{GameEntity, SpawnLevel};
+use crate::{
+    arena::{ArenaSet, ArenaSize},
+    game::{GameEntity, SpawnLevel},
+};
 
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_spawn_level);
+        app.configure_sets(FixedUpdate, LevelSet.after(ArenaSet))
+            .add_observer(on_spawn_level)
+            .add_systems(FixedUpdate, resize_view.in_set(LevelSet));
     }
 }
+
+#[derive(SystemSet, Hash, Debug, PartialEq, Eq, Clone)]
+pub struct LevelSet;
 
 #[derive(Component)]
 #[require(
@@ -44,7 +52,27 @@ impl LevelLight {
     }
 }
 
+#[derive(Component, Default)]
+#[require(GameEntity)]
+pub struct Score(pub u32);
+
 fn on_spawn_level(_: Trigger<SpawnLevel>, mut commands: Commands) {
     commands.spawn(LevelCamera);
     commands.spawn(LevelLight);
+    commands.spawn(Score::default());
+}
+
+fn resize_view(
+    arena_query: Query<&ArenaSize, Changed<ArenaSize>>,
+    mut camera_query: Query<&mut Projection, With<LevelCamera>>,
+) {
+    const OFFSET: f32 = 4.0;
+    for arena_size in arena_query.iter() {
+        let viewport_height = arena_size.0 as f32 + OFFSET;
+        for projection in camera_query.iter_mut() {
+            if let Projection::Orthographic(projection) = projection.into_inner() {
+                projection.scaling_mode = ScalingMode::FixedVertical { viewport_height };
+            }
+        }
+    }
 }

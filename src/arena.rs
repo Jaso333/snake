@@ -1,6 +1,9 @@
 use bevy::{color::palettes::tailwind, prelude::*};
 
-use crate::game::{GameEntity, SpawnLevel, UnitCubeMesh};
+use crate::{
+    game::{GameEntity, SpawnLevel, UnitCubeMesh},
+    level::Score,
+};
 
 pub struct ArenaPlugin;
 
@@ -9,7 +12,10 @@ impl Plugin for ArenaPlugin {
         app.add_observer(on_spawn_level)
             .add_observer(on_add_wall)
             .add_systems(PreStartup, insert_wall_material)
-            .add_systems(FixedUpdate, resize_walls.in_set(ArenaSet));
+            .add_systems(
+                FixedUpdate,
+                (expand_arena, resize_walls).chain().in_set(ArenaSet),
+            );
     }
 }
 
@@ -95,6 +101,20 @@ fn resize_walls(
 
             transform.scale =
                 (Vec3::ONE - scale_dir) + scale_dir * arena_size.0 as f32 + (scale_dir * 2.0);
+        }
+    }
+}
+
+fn expand_arena(
+    score_query: Query<&Score, Changed<Score>>,
+    mut arena_query: Query<&mut ArenaSize>,
+) {
+    for score in score_query.iter() {
+        for mut arena_size in arena_query.iter_mut() {
+            if score.0 >= arena_size.area() as u32 / 4 {
+                //if score.0 >= 1 { // for testing
+                arena_size.0 += 2;
+            }
         }
     }
 }
