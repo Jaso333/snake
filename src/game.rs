@@ -11,11 +11,15 @@ impl Plugin for GamePlugin {
                     .continue_to_state(GameState::Play)
                     .load_collection::<GameFont>(),
             )
+            .add_observer(on_despawn_game_entities)
             .add_observer(on_add_text_font)
             .add_systems(PreStartup, insert_unit_cube_mesh)
             .add_systems(OnEnter(GameState::Play), spawn_level);
     }
 }
+
+#[derive(Event)]
+pub struct DespawnGameEntities;
 
 #[derive(Event)]
 pub struct SpawnLevel;
@@ -49,6 +53,16 @@ fn on_add_text_font(
 
 fn insert_unit_cube_mesh(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
     commands.insert_resource(UnitCubeMesh(meshes.add(Cuboid::from_length(1.0))));
+}
+
+fn on_despawn_game_entities(
+    _: Trigger<DespawnGameEntities>,
+    query: Query<Entity, With<GameEntity>>,
+    mut commands: Commands,
+) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
 }
 
 fn spawn_level(mut commands: Commands) {

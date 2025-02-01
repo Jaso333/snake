@@ -1,6 +1,7 @@
 mod arena;
 mod food;
 mod game;
+mod game_over;
 mod grid;
 mod hud;
 mod level;
@@ -10,6 +11,7 @@ use arena::ArenaPlugin;
 use bevy::prelude::*;
 use food::FoodPlugin;
 use game::GamePlugin;
+use game_over::GameOverPlugin;
 use grid::GridPlugin;
 use hud::HudPlugin;
 use level::LevelPlugin;
@@ -25,5 +27,6 @@ fn main() {
         .add_plugins(SnakePlugin)
         .add_plugins(GridPlugin)
         .add_plugins(FoodPlugin)
+        .add_plugins(GameOverPlugin)
         .run();
 }
