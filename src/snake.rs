@@ -14,6 +14,7 @@ pub struct SnakePlugin;
 impl Plugin for SnakePlugin {
     fn build(&self, app: &mut App) {
         app.add_game_assets::<BodyStraightScene>()
+            .add_game_assets::<BodyCornerScene>()
             .configure_sets(FixedUpdate, SnakeSet.after(ArenaSet).before(GridSet))
             .add_observer(on_spawn_level)
             .add_observer(on_add_snake_visual)
@@ -36,6 +37,12 @@ pub struct SnakeCollided;
 #[derive(Resource, AssetCollection)]
 struct BodyStraightScene {
     #[asset(path = "body_straight.glb#Scene0")]
+    value: Handle<Scene>,
+}
+
+#[derive(Resource, AssetCollection)]
+struct BodyCornerScene {
+    #[asset(path = "body_corner.glb#Scene0")]
     value: Handle<Scene>,
 }
 
@@ -215,34 +222,106 @@ fn visualise_snake_head(
 ) {
     for (direction, mut transform) in query.iter_mut() {
         transform.rotation = Quat::from_rotation_y(match direction.0 {
-            Dir3::NEG_X | Dir3::X => PI / 2.0,
+            Dir3::NEG_X | Dir3::X => PI * 0.5,
             _ => 0.0,
         });
     }
 }
 
 fn visualise_snake_body(
-    mut body_query: Query<(Ref<GridPosition>, &SnakeBodyIndex, &mut Transform)>,
-    mut head_query: Query<&GridPosition, With<SnakeHead>>,
+    mut body_query: Query<(
+        Entity,
+        Ref<GridPosition>,
+        &SnakeBodyIndex,
+        &mut Transform,
+        &mut SceneRoot,
+    )>,
+    head_query: Query<&GridPosition, With<SnakeHead>>,
+    body_straight_scene: Option<Res<BodyStraightScene>>,
+    body_corner_scene: Option<Res<BodyCornerScene>>,
 ) {
-    let Some(head_grid_position) = head_query.iter_mut().next() else {
+    let (Some(body_straight_scene), Some(body_corner_scene), Ok(head_grid_position)) = (
+        body_straight_scene,
+        body_corner_scene,
+        head_query.get_single(),
+    ) else {
         return;
     };
 
-    if body_query.iter().all(|(gp, ..)| !gp.is_changed()) {
+    if body_query.iter().all(|(_, gp, ..)| !gp.is_changed()) {
         return;
     }
 
-    let mut next_grid_position = *head_grid_position;
+    // need to order the entities and look around them to calculate everything we need
+    let ordered_entities: Vec<_> = body_query
+        .iter()
+        .sort::<&SnakeBodyIndex>()
+        .rev()
+        .map(|(e, ..)| e)
+        .collect();
 
-    for (grid_position, _, mut transform) in body_query.iter_mut().sort::<&SnakeBodyIndex>() {
-        transform.rotation =
-            Quat::from_rotation_y(if grid_position.0.z != next_grid_position.0.z {
-                0.0
-            } else {
-                PI / 2.0
-            });
+    for i in 0..ordered_entities.len() {
+        let entity = ordered_entities[i];
+        let (_, grid_position, ..) = body_query.get(entity).unwrap();
+        let next_grid_position = match i + 1 < ordered_entities.len() {
+            true => body_query.get(ordered_entities[i + 1]).unwrap().1.clone(),
+            false => *head_grid_position,
+        };
 
-        next_grid_position = *grid_position;
+        // determine the direction to the next and previous segement
+        let forward_direction = grid_direction(&grid_position, &next_grid_position);
+        let back_direction = match i {
+            0 => forward_direction,
+            _ => {
+                let prev_grid_position = body_query.get(ordered_entities[i - 1]).unwrap().1;
+                grid_direction(&prev_grid_position, &grid_position)
+            }
+        };
+
+        // determine the rotation and scene to show for the visual
+        let (rotation, scene) = match forward_direction.abs() == back_direction.abs() {
+            true => (
+                match forward_direction.x != 0.0 {
+                    true => PI / 2.0,
+                    false => 0.0,
+                },
+                body_straight_scene.value.clone(),
+            ),
+            false => (
+                if forward_direction == Dir3::NEG_Z && back_direction == Dir3::X
+                    || forward_direction == Dir3::NEG_X && back_direction == Dir3::Z
+                {
+                    PI * 1.5
+                } else if forward_direction == Dir3::Z && back_direction == Dir3::NEG_X
+                    || forward_direction == Dir3::X && back_direction == Dir3::NEG_Z
+                {
+                    PI * 0.5
+                } else if forward_direction == Dir3::NEG_Z && back_direction == Dir3::NEG_X
+                    || forward_direction == Dir3::X && back_direction == Dir3::Z
+                {
+                    PI
+                } else {
+                    0.0
+                },
+                body_corner_scene.value.clone(),
+            ),
+        };
+
+        // apply the rotation and scene
+        let (_, _, _, mut transform, mut scene_root) = body_query.get_mut(entity).unwrap();
+        transform.rotation = Quat::from_rotation_y(rotation);
+        scene_root.0 = scene;
+    }
+}
+
+fn grid_direction(first: &GridPosition, second: &GridPosition) -> Dir3 {
+    if second.0.z < first.0.z {
+        Dir3::NEG_Z
+    } else if second.0.z > first.0.z {
+        Dir3::Z
+    } else if second.0.x < first.0.x {
+        Dir3::NEG_X
+    } else {
+        Dir3::X
     }
 }
