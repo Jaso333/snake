@@ -41,6 +41,8 @@ struct SnakeAssets {
     body_corner: Handle<Scene>,
     #[asset(path = "body_end.glb#Scene0")]
     body_end: Handle<Scene>,
+    #[asset(path = "head.glb#Scene0")]
+    head: Handle<Scene>,
 }
 
 #[derive(Component)]
@@ -101,7 +103,7 @@ fn on_add_snake_head(
     mut query: Query<&mut SceneRoot>,
     assets: Res<SnakeAssets>,
 ) {
-    query.get_mut(trigger.entity()).unwrap().0 = assets.body_straight.clone();
+    query.get_mut(trigger.entity()).unwrap().0 = assets.head.clone();
 }
 
 fn control_snake(
@@ -218,8 +220,10 @@ fn visualise_snake_head(
 ) {
     for (direction, mut transform) in query.iter_mut() {
         transform.rotation = Quat::from_rotation_y(match direction.0 {
-            Dir3::NEG_X | Dir3::X => PI * 0.5,
-            _ => 0.0,
+            Dir3::NEG_Z => 0.0,
+            Dir3::Z => PI,
+            Dir3::NEG_X => PI * 0.5,
+            _ => PI * 1.5,
         });
     }
 }
