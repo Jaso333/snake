@@ -13,11 +13,10 @@ pub struct SnakePlugin;
 
 impl Plugin for SnakePlugin {
     fn build(&self, app: &mut App) {
-        app.add_game_assets::<BodyStraightScene>()
-            .add_game_assets::<BodyCornerScene>()
+        app.add_game_assets::<SnakeAssets>()
             .configure_sets(FixedUpdate, SnakeSet.after(ArenaSet).before(GridSet))
             .add_observer(on_spawn_level)
-            .add_observer(on_add_snake_visual)
+            .add_observer(on_add_snake_head)
             .add_systems(Update, control_snake)
             .add_systems(
                 FixedUpdate,
@@ -35,15 +34,13 @@ pub struct SnakeSet;
 pub struct SnakeCollided;
 
 #[derive(Resource, AssetCollection)]
-struct BodyStraightScene {
+struct SnakeAssets {
     #[asset(path = "body_straight.glb#Scene0")]
-    value: Handle<Scene>,
-}
-
-#[derive(Resource, AssetCollection)]
-struct BodyCornerScene {
+    body_straight: Handle<Scene>,
     #[asset(path = "body_corner.glb#Scene0")]
-    value: Handle<Scene>,
+    body_corner: Handle<Scene>,
+    #[asset(path = "body_end.glb#Scene0")]
+    body_end: Handle<Scene>,
 }
 
 #[derive(Component)]
@@ -99,13 +96,12 @@ fn on_spawn_level(_: Trigger<SpawnLevel>, mut commands: Commands) {
     commands.spawn(SnakeHead);
 }
 
-fn on_add_snake_visual(
-    trigger: Trigger<OnAdd, SnakeVisual>,
-    body_straight_scene: Res<BodyStraightScene>,
+fn on_add_snake_head(
+    trigger: Trigger<OnAdd, SnakeHead>,
     mut query: Query<&mut SceneRoot>,
+    assets: Res<SnakeAssets>,
 ) {
-    let mut scene_root = query.get_mut(trigger.entity()).unwrap();
-    scene_root.0 = body_straight_scene.value.clone();
+    query.get_mut(trigger.entity()).unwrap().0 = assets.body_straight.clone();
 }
 
 fn control_snake(
@@ -237,14 +233,9 @@ fn visualise_snake_body(
         &mut SceneRoot,
     )>,
     head_query: Query<&GridPosition, With<SnakeHead>>,
-    body_straight_scene: Option<Res<BodyStraightScene>>,
-    body_corner_scene: Option<Res<BodyCornerScene>>,
+    assets: Option<Res<SnakeAssets>>,
 ) {
-    let (Some(body_straight_scene), Some(body_corner_scene), Ok(head_grid_position)) = (
-        body_straight_scene,
-        body_corner_scene,
-        head_query.get_single(),
-    ) else {
+    let (Some(assets), Ok(head_grid_position)) = (assets, head_query.get_single()) else {
         return;
     };
 
@@ -281,11 +272,16 @@ fn visualise_snake_body(
         // determine the rotation and scene to show for the visual
         let (rotation, scene) = match forward_direction.abs() == back_direction.abs() {
             true => (
-                match forward_direction.x != 0.0 {
-                    true => PI / 2.0,
-                    false => 0.0,
+                match forward_direction {
+                    Dir3::NEG_Z => 0.0,
+                    Dir3::Z => PI,
+                    Dir3::NEG_X => PI * 0.5,
+                    _ => PI * 1.5,
                 },
-                body_straight_scene.value.clone(),
+                match i {
+                    0 => assets.body_end.clone(),
+                    _ => assets.body_straight.clone(),
+                },
             ),
             false => (
                 if forward_direction == Dir3::NEG_Z && back_direction == Dir3::X
@@ -303,7 +299,7 @@ fn visualise_snake_body(
                 } else {
                     0.0
                 },
-                body_corner_scene.value.clone(),
+                assets.body_corner.clone(),
             ),
         };
 
